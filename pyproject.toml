@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "implementation-of-cudi"
+version = "0.1.0"
+description = "PyTorch implementation skeleton for CuDi curve distillation exposure adjustment."
+requires-python = ">=3.9"
+
+[tool.setuptools.packages.find]
+where = ["src"]
