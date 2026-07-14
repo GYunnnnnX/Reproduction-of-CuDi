@@ -1,10 +1,10 @@
 """Run CuDi inference."""
+from __future__ import annotations
 
 """使用蒸馏后的 CuDi 学生网络进行推理。
 训练完成后只保留学生网络。推理时给定输入图像 I 和条件曝光图 E，
 学生网络预测切线参数 K/B，并用 Y = K * I + B 得到最终增强图像。
 """
-from __future__ import annotations
 
 import argparse
 from pathlib import Path

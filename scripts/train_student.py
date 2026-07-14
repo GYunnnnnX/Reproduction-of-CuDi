@@ -1,10 +1,10 @@
 """Distill CuDi student network from teacher."""
+from __future__ import annotations
 
 """从训练好的 CuDi 教师网络蒸馏学生网络。
 学生网络学习拟合教师网络的高阶曲线输出。
 训练完成后，推理阶段只保留学生网络，更快、更轻量。
 """
-from __future__ import annotations
 
 import argparse
 from pathlib import Path
@@ -23,7 +23,7 @@ from cudi.utils.config import load_config
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="configs/default.yaml")
-    parser.add_argument("--train-dir", default=None)
+    parser.add_argument("--train-dir", default="data/train")
     parser.add_argument("--teacher", default="checkpoints/teacher.pt")
     parser.add_argument("--output", default="checkpoints/student.pt")
     return parser.parse_args()

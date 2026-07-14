@@ -1,10 +1,10 @@
 """Train CuDi teacher network."""
+from __future__ import annotations
 
 """训练 CuDi 教师网络。
 教师网络负责学习 Zero-DCE 风格的高阶曲线参数 A，并通过 LE_8(I) 得到增强结果。
 训练教师时依赖零参考损失和条件曝光图 E。
 """
-from __future__ import annotations
 
 import argparse
 from pathlib import Path
@@ -22,7 +22,7 @@ from cudi.utils.config import load_config
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="configs/default.yaml")
-    parser.add_argument("--train-dir", default=None)
+    parser.add_argument("--train-dir", default="data/train")
     parser.add_argument("--output", default="checkpoints/teacher.pt")
     return parser.parse_args()
 
