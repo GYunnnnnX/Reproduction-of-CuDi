@@ -26,9 +26,9 @@ class SelfSupervisedExposureControlLoss(nn.Module):
         self.patch_size = patch_size
 
     def forward(self, result: Tensor, exposure_map: Tensor) -> Tensor:
-        """计算增强结果和曝光图在局部 patch 平均亮度上的 L1 距离。"""
-        result_mean = F.avg_pool2d(rgb_to_intensity(result), self.patch_size)
-        exposure_mean = F.avg_pool2d(exposure_map, self.patch_size)
+        """计算 16×16 非重叠局部 patch 平均亮度之间的 L1 距离。"""
+        result_mean = F.avg_pool2d(rgb_to_intensity(result), kernel_size=self.patch_size, stride=self.patch_size)
+        exposure_mean = F.avg_pool2d(exposure_map, kernel_size=self.patch_size, stride=self.patch_size)
         return F.l1_loss(result_mean, exposure_mean)
 
 

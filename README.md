@@ -29,3 +29,19 @@ pip install -e .
 python scripts/train_teacher.py
 ```
 
+训练完教师模型后，运行以下脚本训练学生模型，模型会自动保存在路径`checkpoints/student.pt`下。
+
+```bash
+python scripts/train_student.py
+```
+
+推理时，使用以下命令：
+
+```bash
+# norm模式
+python scripts/infer.py --input path-to-input.png --output path-to-output.png --checkpoint checkpoints/student.pt --exposure 0.65
+
+# spatial模式
+python scripts/infer.py --input path-to-input.png --output path-to-output.png --checkpoint checkpoints/student.pt --mode spatial --base 0.55 --amplitude 0.15
+```
+
