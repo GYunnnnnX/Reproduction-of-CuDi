@@ -67,10 +67,11 @@ def main() -> None:
         for image in progress:
             image = image.to(device)
             exposure = random_exposure_map(image.size(0), image.size(2), image.size(3), device)
+            teacher_exposure = 1.0 - exposure
 
             # 教师权重固定，teacher_result 作为学生蒸馏目标。
             with torch.no_grad():
-                teacher_result, _ = teacher(image, exposure)
+                teacher_result, _ = teacher(image, teacher_exposure)
             student_result, _ = student(image, exposure)
             loss = criterion(student_result, teacher_result)
 

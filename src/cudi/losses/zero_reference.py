@@ -34,34 +34,28 @@ class SelfSupervisedExposureControlLoss(nn.Module):
 
 class SpatialConsistencyLoss(nn.Module):
     """空间一致性损失（L_sc）。
-    它约束增强前后相邻 patch 的亮度差异关系保持一致，避免增强结果破坏原图中
-    的局部结构、边缘和明暗相对关系。
+    四方向差分核，约束增强前后局部亮度梯度保持一致。
     """
 
     def __init__(self, patch_size: int = 4) -> None:
         super().__init__()
         self.patch_size = patch_size
+        self.register_buffer("weight_left", torch.tensor([[0, 0, 0], [-1, 1, 0], [0, 0, 0]], dtype=torch.float32).view(1, 1, 3, 3))
+        self.register_buffer("weight_right", torch.tensor([[0, 0, 0], [0, 1, -1], [0, 0, 0]], dtype=torch.float32).view(1, 1, 3, 3))
+        self.register_buffer("weight_up", torch.tensor([[0, -1, 0], [0, 1, 0], [0, 0, 0]], dtype=torch.float32).view(1, 1, 3, 3))
+        self.register_buffer("weight_down", torch.tensor([[0, 0, 0], [0, 1, 0], [0, -1, 0]], dtype=torch.float32).view(1, 1, 3, 3))
 
     def forward(self, image: Tensor, result: Tensor) -> Tensor:
-        """比较输入图和增强图在水平、垂直相邻 patch 上的亮度差。"""
-        image_pool = F.avg_pool2d(rgb_to_intensity(image), self.patch_size)
-        result_pool = F.avg_pool2d(rgb_to_intensity(result), self.patch_size)
+        """比较输入图和增强图的四方向局部亮度差。"""
+        image_pool = F.avg_pool2d(rgb_to_intensity(image), kernel_size=self.patch_size, stride=self.patch_size)
+        result_pool = F.avg_pool2d(rgb_to_intensity(result), kernel_size=self.patch_size, stride=self.patch_size)
 
-        # 输入图中相邻 patch 的亮度，用于表示原始空间结构。
-        image_left = image_pool[:, :, :, :-1]
-        image_right = image_pool[:, :, :, 1:]
-        image_up = image_pool[:, :, :-1, :]
-        image_down = image_pool[:, :, 1:, :]
+        diff_left = F.conv2d(result_pool, self.weight_left, padding=1) - F.conv2d(image_pool, self.weight_left, padding=1)
+        diff_right = F.conv2d(result_pool, self.weight_right, padding=1) - F.conv2d(image_pool, self.weight_right, padding=1)
+        diff_up = F.conv2d(result_pool, self.weight_up, padding=1) - F.conv2d(image_pool, self.weight_up, padding=1)
+        diff_down = F.conv2d(result_pool, self.weight_down, padding=1) - F.conv2d(image_pool, self.weight_down, padding=1)
 
-        # 增强图中相邻 patch 的亮度，用于和输入图的结构关系进行对齐。
-        result_left = result_pool[:, :, :, :-1]
-        result_right = result_pool[:, :, :, 1:]
-        result_up = result_pool[:, :, :-1, :]
-        result_down = result_pool[:, :, 1:, :]
-
-        horizontal = (torch.abs(result_left - result_right) - torch.abs(image_left - image_right)).pow(2)
-        vertical = (torch.abs(result_up - result_down) - torch.abs(image_up - image_down)).pow(2)
-        return horizontal.mean() + vertical.mean()
+        return diff_left.pow(2).mean() + diff_right.pow(2).mean() + diff_up.pow(2).mean() + diff_down.pow(2).mean()
 
 
 class ColorConstancyLoss(nn.Module):
@@ -70,38 +64,34 @@ class ColorConstancyLoss(nn.Module):
     """
 
     def forward(self, result: Tensor) -> Tensor:
-        """计算增强图 RGB 通道均值两两之间的平方差。"""
-        # 假设 result 的形状是[B, 3, H, W]
-        channel_mean = result.mean(dim=(2, 3))
-        r, g, b = channel_mean[:, 0], channel_mean[:, 1], channel_mean[:, 2]
-        return (r - g).pow(2).mean() + (r - b).pow(2).mean() + (g - b).pow(2).mean()
+        """计算增强图 RGB 通道均值之间的颜色恒常性损失。"""
+        mean_rgb = result.mean(dim=(2, 3), keepdim=True)
+        mr, mg, mb = torch.split(mean_rgb, 1, dim=1)
+        drg = (mr - mg).pow(2)
+        drb = (mr - mb).pow(2)
+        dgb = (mb - mg).pow(2)
+        return torch.sqrt(drg.pow(2) + drb.pow(2) + dgb.pow(2)).mean()
 
 
 class IlluminationSmoothnessLoss(nn.Module):
     """光照平滑损失（L_is）。
-    教师网络会输出多组曲线参数 A_n。这个损失约束每组参数图在空间上平滑，
-    避免相邻像素的曲线参数剧烈变化，从而减少增强结果中的噪声和伪影。
+    对整张曲线参数图做平滑约束。
     """
 
-    def __init__(self, iterations: int = 8) -> None:
+    def __init__(self, TVLoss_weight: float = 1.0) -> None:
         super().__init__()
-        self.iterations = iterations
+        self.TVLoss_weight = TVLoss_weight
 
     def forward(self, curve_params: Tensor) -> Tensor:
-        """对每次迭代的 3 通道曲线参数分别计算水平和垂直方向平滑项。"""
-        if curve_params.size(1) != self.iterations * 3:
-            raise ValueError(f"expected {self.iterations * 3} channels, got {curve_params.size(1)}")
-
-        loss = curve_params.new_tensor(0.0)
-        for params in torch.chunk(curve_params, self.iterations, dim=1):
-            grad_x = torch.abs(params[:, :, :, 1:] - params[:, :, :, :-1])
-            grad_y = torch.abs(params[:, :, 1:, :] - params[:, :, :-1, :])
-
-            # 对每个 RGB 通道分别计算水平/垂直梯度的 L1 范数，对应公式中的 c ∈ {r,g,b}。
-            grad_x_l1 = grad_x.mean(dim=(2, 3))
-            grad_y_l1 = grad_y.mean(dim=(2, 3))
-            loss = loss + (grad_x_l1 + grad_y_l1).pow(2).sum(dim=1).mean()
-        return loss / self.iterations
+        """计算曲线参数图的光照平滑损失。"""
+        batch_size = curve_params.size(0)
+        h_x = curve_params.size(2)
+        w_x = curve_params.size(3)
+        count_h = max((h_x - 1) * w_x, 1)
+        count_w = max(h_x * (w_x - 1), 1)
+        h_tv = torch.pow(curve_params[:, :, 1:, :] - curve_params[:, :, : h_x - 1, :], 2).sum()
+        w_tv = torch.pow(curve_params[:, :, :, 1:] - curve_params[:, :, :, : w_x - 1], 2).sum()
+        return self.TVLoss_weight * 2 * (h_tv / count_h + w_tv / count_w) / batch_size
 
 
 class CuDiTeacherLoss(nn.Module):
